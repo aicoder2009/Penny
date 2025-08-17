@@ -308,6 +308,7 @@ extension DateFormatter {
 
 struct ContentView: View {
     @StateObject private var viewModel = BudgetViewModel()
+    @State private var showingCameraScanner = false
     
     var body: some View {
         TabView {
@@ -315,6 +316,13 @@ struct ContentView: View {
                 .tabItem {
                     Image(systemName: "house.fill")
                     Text("Dashboard")
+                }
+            
+            // Camera Affordability Scanner Tab
+            CameraScannerTabView(viewModel: viewModel, showingCameraScanner: $showingCameraScanner)
+                .tabItem {
+                    Image(systemName: "camera.viewfinder")
+                    Text("Scan")
                 }
             
             BudgetOverviewView(viewModel: viewModel)
@@ -331,6 +339,95 @@ struct ContentView: View {
         }
         .onAppear {
             viewModel.loadData()
+        }
+        .fullScreenCover(isPresented: $showingCameraScanner) {
+            CameraAffordabilityView()
+        }
+    }
+}
+
+// MARK: - Camera Scanner Tab View
+
+struct CameraScannerTabView: View {
+    @ObservedObject var viewModel: BudgetViewModel
+    @Binding var showingCameraScanner: Bool
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 30) {
+                Spacer()
+                
+                // Camera Icon and Title
+                VStack(spacing: 16) {
+                    Image(systemName: "camera.viewfinder")
+                        .font(.system(size: 80))
+                        .foregroundColor(.blue)
+                    
+                    Text("Camera Affordability Scanner")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .multilineTextAlignment(.center)
+                    
+                    Text("Point your camera at any item to get instant affordability decisions based on your AI-optimized budget")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+                
+                // Scan Button
+                Button(action: {
+                    showingCameraScanner = true
+                }) {
+                    HStack {
+                        Image(systemName: "camera.fill")
+                        Text("Start Scanning")
+                    }
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue)
+                    .cornerRadius(12)
+                }
+                .padding(.horizontal)
+                
+                // Quick Budget Status
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Current Budget Status")
+                        .font(.headline)
+                    
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text("Monthly Budget")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text("$\(viewModel.budget.monthlyBudget, specifier: "%.0f")")
+                                .font(.title3)
+                                .fontWeight(.semibold)
+                        }
+                        
+                        Spacer()
+                        
+                        VStack(alignment: .trailing) {
+                            Text("Remaining")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text("$\(viewModel.budget.monthlyBudget - viewModel.totalMonthlySpending, specifier: "%.0f")")
+                                .font(.title3)
+                                .fontWeight(.semibold)
+                                .foregroundColor(viewModel.budget.monthlyBudget - viewModel.totalMonthlySpending >= 0 ? .green : .red)
+                        }
+                    }
+                }
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
+                .padding(.horizontal)
+                
+                Spacer()
+            }
+            .navigationTitle("Scan Items")
         }
     }
 }
