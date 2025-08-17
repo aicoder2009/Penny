@@ -166,13 +166,16 @@ class BudgetViewModel: ObservableObject {
     var isWithinDailyBudget: Bool {
         let calendar = Calendar.current
         let today = Date()
-        let startOfMonth = calendar.dateInterval(of: .month, for: today)?.start ?? today
-        let daysInMonth = calendar.range(of: .day, in: .month, for: today)?.count ?? 30
-        let daysPassed = calendar.dateComponents([.day], from: startOfMonth, to: today).day ?? 1
-        let daysRemaining = daysInMonth - daysPassed + 1
+        guard let startOfMonth = calendar.dateInterval(of: .month, for: today)?.start,
+              let daysInMonth = calendar.range(of: .day, in: .month, for: today)?.count else {
+            return false
+        }
+        
+        let daysPassed = calendar.dateComponents([.day], from: startOfMonth, to: today).day ?? 0
+        let daysRemaining = max(daysInMonth - daysPassed, 1) // Ensure at least 1 day remaining
         
         let budgetRemaining = budget.monthlyBudget - totalMonthlySpending
-        let dailyBudgetAllowance = budgetRemaining / Double(max(daysRemaining, 1))
+        let dailyBudgetAllowance = budgetRemaining / Double(daysRemaining)
         
         let todaySpending = currentMonthTransactions
             .filter { !$0.isIncome && calendar.isDate($0.date, inSameDayAs: today) }
@@ -185,52 +188,66 @@ class BudgetViewModel: ObservableObject {
         loadData()
     }
     
+    private let saveQueue = DispatchQueue(label: "com.penny.save", qos: .utility)
+    
     func addTransaction(_ transaction: Transaction) {
         transactions.append(transaction)
-        saveData()
+        saveDataSafely()
         updateStreak()
     }
     
     func deleteTransaction(_ transaction: Transaction) {
         transactions.removeAll { $0.id == transaction.id }
-        saveData()
+        saveDataSafely()
         updateStreak()
+    }
+    
+    func saveDataSafely() {
+        saveQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            do {
+                // Save transactions
+                let transactionData = try JSONEncoder().encode(self.transactions)
+                let budgetData = try JSONEncoder().encode(self.budget)
+                let streakData = try JSONEncoder().encode(self.streak)
+                
+                DispatchQueue.main.async {
+                    self.savedTransactionsData = transactionData
+                    self.savedBudgetData = budgetData
+                    self.savedStreakData = streakData
+                }
+            } catch {
+                print("Failed to save data: \(error)")
+            }
+        }
     }
     
     func loadData() {
-        // Load transactions
-        if let decoded = try? JSONDecoder().decode([Transaction].self, from: savedTransactionsData) {
-            transactions = decoded
-        }
-        
-        // Load budget
-        if let decoded = try? JSONDecoder().decode(Budget.self, from: savedBudgetData) {
-            budget = decoded
-        }
-        
-        // Load streak
-        if let decoded = try? JSONDecoder().decode(SpendingStreak.self, from: savedStreakData) {
-            streak = decoded
+        do {
+            // Load transactions
+            if !savedTransactionsData.isEmpty {
+                transactions = try JSONDecoder().decode([Transaction].self, from: savedTransactionsData)
+            }
+            
+            // Load budget
+            if !savedBudgetData.isEmpty {
+                budget = try JSONDecoder().decode(Budget.self, from: savedBudgetData)
+            }
+            
+            // Load streak
+            if !savedStreakData.isEmpty {
+                streak = try JSONDecoder().decode(SpendingStreak.self, from: savedStreakData)
+            }
+        } catch {
+            print("Failed to load data: \(error)")
+            // Reset to defaults on corruption
+            transactions = []
+            budget = Budget()
+            streak = SpendingStreak()
         }
         
         updateStreak()
-    }
-    
-    func saveData() {
-        // Save transactions
-        if let encoded = try? JSONEncoder().encode(transactions) {
-            savedTransactionsData = encoded
-        }
-        
-        // Save budget
-        if let encoded = try? JSONEncoder().encode(budget) {
-            savedBudgetData = encoded
-        }
-        
-        // Save streak
-        if let encoded = try? JSONEncoder().encode(streak) {
-            savedStreakData = encoded
-        }
     }
     
     // Update streak
@@ -243,6 +260,9 @@ class BudgetViewModel: ObservableObject {
         if calendar.isDate(streak.lastCheckDate, inSameDayAs: today) {
             return
         }
+        
+        // Clean up old history entries (keep only last 90 days)
+        cleanupStreakHistory()
         
         // If yesterday was within budget, continue or start streak
         let yesterdayKey = DateFormatter.dayKey.string(from: yesterday)
@@ -262,7 +282,17 @@ class BudgetViewModel: ObservableObject {
         streak.dailyBudgetHistory[todayKey] = isWithinDailyBudget
         streak.lastCheckDate = today
         
-        saveData()
+        saveDataSafely()
+    }
+    
+    private func cleanupStreakHistory() {
+        let calendar = Calendar.current
+        let cutoffDate = calendar.date(byAdding: .day, value: -90, to: Date()) ?? Date()
+        let cutoffKey = DateFormatter.dayKey.string(from: cutoffDate)
+        
+        streak.dailyBudgetHistory = streak.dailyBudgetHistory.filter { key, _ in
+            key >= cutoffKey
+        }
     }
 }
 
@@ -707,7 +737,7 @@ struct BudgetSettingsView: View {
             }
         }
         
-        viewModel.saveData()
+        viewModel.saveDataSafely()
         dismiss()
     }
 }
