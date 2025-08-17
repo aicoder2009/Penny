@@ -72,3 +72,56 @@ Penny is a revolutionary iOS application designed for the 2026 Swift Student Cha
 - Zero cloud dependency for core AI functionality
 
 Built entirely in Swift using modern iOS design patterns, Core ML for machine learning, and Apple's latest frameworks to deliver a truly intelligent, private, and effortless budgeting experience that represents the future of personal finance management.
+
+## 🚀 Getting Started
+
+### Prerequisites
+- Xcode 15.0 or later
+- iOS 17.0+ deployment target
+- macOS Sonoma or later
+
+### Installation
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/aicoder2009/Penny.git
+   cd Penny
+   ```
+
+2. **Open in Xcode**
+   ```bash
+   open Penny.xcodeproj
+   ```
+   Or simply double-click `Penny.xcodeproj` in Finder
+
+3. **Build and Run**
+   - Select your target device or simulator
+   - Press `Cmd + R` to build and run
+   - The app will launch with the full AI-powered budgeting interface
+
+### Project Structure
+```
+Penny/
+├── Penny.xcodeproj/          # Xcode project configuration
+├── Penny/                    # Source code
+│   ├── PennyApp.swift       # Main app entry point
+│   ├── ContentView.swift    # Primary SwiftUI interface
+│   ├── Assets.xcassets/     # App icons and colors
+│   └── Preview Content/     # SwiftUI preview assets
+├── README.md                # Project documentation
+└── .gitignore              # Git ignore rules
+```
+
+### Features Ready to Test
+- ✅ **Camera Affordability Scanner** - Point camera at items for instant budget decisions
+- ✅ **AI Budget Management** - Automatic spending limit adjustments
+- ✅ **Apple Pay-Style Input** - Premium expense entry interface
+- ✅ **Streak System** - Gamified budget adherence tracking
+- ✅ **Face ID Privacy Mode** - Secure financial data protection
+
+### Swift Student Challenge 2026
+This project represents a complete iOS application submission showcasing:
+- Advanced SwiftUI interface design
+- Apple Foundation Models integration
+- VisionKit camera functionality
+- LocalAuthentication security
+- Modern iOS development practices
