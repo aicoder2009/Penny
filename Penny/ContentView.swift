@@ -341,7 +341,7 @@ struct ContentView: View {
             viewModel.loadData()
         }
         .fullScreenCover(isPresented: $showingCameraScanner) {
-            CameraAffordabilityView()
+            CameraAffordabilityView(budgetViewModel: viewModel)
         }
     }
 }
@@ -389,6 +389,23 @@ struct CameraScannerTabView: View {
                     .padding()
                     .background(Color.blue)
                     .cornerRadius(12)
+                }
+                .padding(.horizontal)
+                
+                // Test Button (for development)
+                Button(action: {
+                    runCameraAffordabilityTests()
+                }) {
+                    HStack {
+                        Image(systemName: "testtube.2")
+                        Text("Test Scanner Logic")
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(8)
                 }
                 .padding(.horizontal)
                 

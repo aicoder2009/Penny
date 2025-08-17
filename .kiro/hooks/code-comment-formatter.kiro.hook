@@ -1,0 +1,28 @@
+{
+  "enabled": true,
+  "name": "Auto Code Commenter",
+  "description": "Automatically adds nicely formatted professional style code comments for debug and easy documentation whenever new files are created and code is written",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "**/*.swift",
+      "**/*.js",
+      "**/*.ts",
+      "**/*.py",
+      "**/*.java",
+      "**/*.cpp",
+      "**/*.c",
+      "**/*.h",
+      "**/*.cs",
+      "**/*.php",
+      "**/*.rb",
+      "**/*.go",
+      "**/*.rs"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Please analyze the code in the modified files and add professional, well-formatted code comments that include: 1) Function/method descriptions explaining purpose and behavior, 2) Parameter descriptions with types and expected values, 3) Return value descriptions, 4) Important implementation notes for debugging, 5) Usage examples where helpful. Format comments according to the language's standard documentation conventions (e.g., /// for Swift, /** */ for JavaScript/Java, \"\"\" \"\"\" for Python). Focus on making the code self-documenting and easy to understand for other developers."
+  }
+}

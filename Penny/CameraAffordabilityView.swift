@@ -15,6 +15,11 @@ import Vision
 struct CameraAffordabilityView: View {
     @StateObject private var viewModel = CameraAffordabilityViewModel()
     @Environment(\.dismiss) private var dismiss
+    let budgetViewModel: BudgetViewModel
+    
+    init(budgetViewModel: BudgetViewModel = BudgetViewModel()) {
+        self.budgetViewModel = budgetViewModel
+    }
     
     var body: some View {
         ZStack {
@@ -69,8 +74,22 @@ struct CameraAffordabilityView: View {
                 
                 Spacer()
             }
+            
+            // Affordability Result Card
+            if viewModel.showingResultCard, let result = viewModel.currentAffordabilityResult {
+                VStack {
+                    Spacer()
+                    AffordabilityResultCard(result: result, budgetViewModel: budgetViewModel) {
+                        viewModel.showingResultCard = false
+                        viewModel.currentAffordabilityResult = nil
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .animation(.spring(response: 0.6, dampingFraction: 0.8), value: viewModel.showingResultCard)
+            }
         }
         .onAppear {
+            viewModel.budgetViewModel = budgetViewModel
             viewModel.startCamera()
         }
         .onDisappear {
@@ -87,6 +106,113 @@ struct CameraAffordabilityView: View {
             }
         } message: {
             Text("Penny needs camera access to scan items for affordability checking. Please enable camera access in Settings.")
+        }
+    }
+}
+
+// MARK: - Affordability Result Card
+
+struct AffordabilityResultCard: View {
+    let result: AffordabilityResult
+    let budgetViewModel: BudgetViewModel
+    let onDismiss: () -> Void
+    @State private var showingAddTransaction = false
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Main affordability indicator
+            VStack(spacing: 12) {
+                // Affordability status
+                HStack {
+                    Image(systemName: result.canAfford ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .font(.title)
+                        .foregroundColor(result.canAfford ? .green : .red)
+                    
+                    VStack(alignment: .leading) {
+                        Text(result.canAfford ? "You can afford this!" : "Over budget")
+                            .font(.headline)
+                            .fontWeight(.bold)
+                            .foregroundColor(result.canAfford ? .green : .red)
+                        
+                        Text("$\(result.estimatedPrice, specifier: "%.2f") • \(result.detectedCategory.rawValue)")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                }
+                
+                // AI Reasoning
+                Text(result.aiReasoning)
+                    .font(.body)
+                    .multilineTextAlignment(.leading)
+                    .padding(.horizontal)
+            }
+            
+            // Budget Impact Details
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Budget Impact")
+                    .font(.headline)
+                
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text("Category Remaining")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("$\(result.budgetImpact.categoryBudgetRemaining, specifier: "%.0f")")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
+                    
+                    Spacer()
+                    
+                    VStack(alignment: .trailing) {
+                        Text("Monthly Remaining")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("$\(result.budgetImpact.remainingMonthlyBudget, specifier: "%.0f")")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
+                }
+            }
+            .padding()
+            .background(Color(.systemGray6))
+            .cornerRadius(8)
+            
+            // Action buttons
+            HStack(spacing: 12) {
+                Button("Dismiss") {
+                    onDismiss()
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color(.systemGray5))
+                .foregroundColor(.primary)
+                .cornerRadius(8)
+                
+                if result.canAfford {
+                    Button("Add to Budget") {
+                        showingAddTransaction = true
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.green)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                }
+            }
+        }
+        .padding()
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .padding()
+        .sheet(isPresented: $showingAddTransaction) {
+            AddTransactionView(
+                isIncome: false,
+                viewModel: budgetViewModel,
+                prefilledAmount: result.estimatedPrice,
+                prefilledCategory: result.detectedCategory
+            )
         }
     }
 }
@@ -120,14 +246,22 @@ struct CameraPreviewView: UIViewRepresentable {
 class CameraAffordabilityViewModel: NSObject, ObservableObject {
     @Published var isProcessing = false
     @Published var showingPermissionAlert = false
+    @Published var currentAffordabilityResult: AffordabilityResult?
+    @Published var showingResultCard = false
     
     let captureSession = AVCaptureSession()
     private var videoOutput = AVCaptureVideoDataOutput()
     private let sessionQueue = DispatchQueue(label: "camera.session.queue")
+    private let visionProcessor = VisionProcessor()
+    private let priceEstimationEngine = PriceEstimationEngine()
+    
+    // Integration with existing budget system
+    var budgetViewModel: BudgetViewModel?
     
     override init() {
         super.init()
         setupCamera()
+        visionProcessor.delegate = self
     }
     
     private func setupCamera() {
@@ -207,16 +341,43 @@ class CameraAffordabilityViewModel: NSObject, ObservableObject {
 
 extension CameraAffordabilityViewModel: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        // This is where we'll process frames for object detection
-        // For now, we'll just indicate processing status
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        
+        // Process frame with VisionKit
+        visionProcessor.processFrame(pixelBuffer)
+    }
+}
+
+// MARK: - Vision Processor Delegate
+
+extension CameraAffordabilityViewModel: VisionProcessorDelegate {
+    func visionProcessor(_ processor: VisionProcessor, didDetectObject object: DetectedObject) {
         DispatchQueue.main.async {
-            // Simulate processing
-            if !self.isProcessing {
-                self.isProcessing = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    self.isProcessing = false
-                }
+            self.isProcessing = true
+            
+            // Estimate price for detected object
+            let estimatedPrice = self.priceEstimationEngine.estimatePrice(for: object)
+            
+            // Calculate affordability using existing budget system
+            if let budgetViewModel = self.budgetViewModel {
+                let affordabilityResult = budgetViewModel.calculateAffordability(for: object, estimatedPrice: estimatedPrice)
+                
+                self.currentAffordabilityResult = affordabilityResult
+                self.showingResultCard = true
+                
+                // Haptic feedback
+                let impactFeedback = UIImpactFeedbackGenerator(style: affordabilityResult.canAfford ? .light : .heavy)
+                impactFeedback.impactOccurred()
             }
+            
+            self.isProcessing = false
+        }
+    }
+    
+    func visionProcessor(_ processor: VisionProcessor, didFailWithError error: Error) {
+        DispatchQueue.main.async {
+            self.isProcessing = false
+            print("Vision processing error: \(error.localizedDescription)")
         }
     }
 }

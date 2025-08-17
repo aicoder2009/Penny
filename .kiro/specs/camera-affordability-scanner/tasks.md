@@ -6,15 +6,15 @@
   - Create basic Swift camera permission handling with graceful fallback
   - _Requirements: 1.1, 2.1, 5.3_
 
-- [ ] 2. Extend existing data models for camera affordability features
-  - [ ] 2.1 Add camera-specific properties to existing models
+- [x] 2. Extend existing data models for camera affordability features
+  - [x] 2.1 Add camera-specific properties to existing models
     - Extend existing Category enum with camera detection confidence tracking
     - Add affordability result properties to work with existing Transaction model
     - Create minimal DetectedObject struct that maps to existing Category system
     - Write unit tests for extended model functionality
     - _Requirements: 1.2, 6.1_
 
-  - [ ] 2.2 Create affordability result structures using existing budget data
+  - [x] 2.2 Create affordability result structures using existing budget data
     - Build AffordabilityResult struct that works with existing Budget and BudgetViewModel
     - Add AI reasoning properties that integrate with current budget calculations
     - Extend existing budget tracking to include AI-powered recommendations
