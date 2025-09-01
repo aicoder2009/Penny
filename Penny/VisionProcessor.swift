@@ -9,6 +9,7 @@ import Foundation
 import Vision
 import AVFoundation
 import CoreML
+import MLCompute
 
 // MARK: - Vision Processor
 
@@ -17,10 +18,16 @@ class VisionProcessor: NSObject {
     
     private var requests: [VNRequest] = []
     private let processingQueue = DispatchQueue(label: "vision.processing.queue", qos: .userInitiated)
+    private let foundationModelsProcessor = AppleFoundationModelsProcessor()
     
     override init() {
         super.init()
         setupVisionRequests()
+        setupFoundationModels()
+    }
+    
+    private func setupFoundationModels() {
+        foundationModelsProcessor.initialize()
     }
     
     private func setupVisionRequests() {
@@ -75,11 +82,14 @@ class VisionProcessor: NSObject {
             // Only return objects with reasonable confidence
             guard confidence > 0.3 else { return nil }
             
-            return DetectedObject(
+            let detectedObject = DetectedObject(
                 category: category,
                 confidence: confidence * category.detectionConfidenceMultiplier,
                 boundingBox: observation.boundingBox
             )
+            
+            // Enhance with Apple Foundation Models (foundation setup)
+            return foundationModelsProcessor.enhanceClassification(for: detectedObject)
         }
         
         // Return the most confident detection
@@ -123,6 +133,51 @@ class VisionProcessor: NSObject {
 protocol VisionProcessorDelegate: AnyObject {
     func visionProcessor(_ processor: VisionProcessor, didDetectObject object: DetectedObject)
     func visionProcessor(_ processor: VisionProcessor, didFailWithError error: Error)
+}
+
+// MARK: - Apple Foundation Models Integration
+
+/// Handles Apple Foundation Models integration for on-device AI processing
+/// This class provides the foundation for future AI-powered affordability analysis
+class AppleFoundationModelsProcessor {
+    
+    /// Indicates if Apple Foundation Models are available on this device
+    /// Currently returns false as we're setting up the foundation
+    var isAvailable: Bool {
+        // TODO: Implement actual Apple Foundation Models availability check
+        // This will be enhanced in future tasks when we integrate the actual models
+        return false
+    }
+    
+    /// Prepares the Foundation Models processor for use
+    /// Sets up the necessary configurations for on-device AI processing
+    func initialize() {
+        // TODO: Initialize Apple Foundation Models
+        // This will be implemented in task 4 when we integrate the actual models
+        print("Apple Foundation Models processor initialized (foundation setup)")
+    }
+    
+    /// Processes detected objects using Apple Foundation Models for enhanced classification
+    /// - Parameter detectedObject: The object detected by VisionKit
+    /// - Returns: Enhanced classification with AI reasoning (placeholder for now)
+    func enhanceClassification(for detectedObject: DetectedObject) -> DetectedObject {
+        // TODO: Implement actual Apple Foundation Models processing
+        // For now, return the original object as this is foundation setup
+        print("Foundation Models processing placeholder - object: \(detectedObject.category)")
+        return detectedObject
+    }
+    
+    /// Generates AI-powered affordability reasoning using Foundation Models
+    /// - Parameters:
+    ///   - object: The detected object
+    ///   - canAfford: Whether the user can afford the item
+    /// - Returns: Natural language explanation (placeholder for now)
+    func generateAffordabilityReasoning(for object: DetectedObject, canAfford: Bool) -> String {
+        // TODO: Implement actual Apple Foundation Models reasoning
+        // This is foundation setup - actual AI reasoning will be added in task 4
+        let affordabilityText = canAfford ? "affordable" : "not affordable"
+        return "Based on your budget analysis, this \(object.category.rawValue.lowercased()) item is \(affordabilityText)."
+    }
 }
 
 // MARK: - Price Estimation Engine

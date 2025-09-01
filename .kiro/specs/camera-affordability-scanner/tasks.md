@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Set up camera permissions and VisionKit foundation in Swift
+- [-] 1. Set up camera permissions and VisionKit foundation in Swift
   - Add camera usage description to Info.plist for affordability scanning
   - Import VisionKit, AVFoundation, and Apple Foundation Models frameworks in Swift
   - Create basic Swift camera permission handling with graceful fallback

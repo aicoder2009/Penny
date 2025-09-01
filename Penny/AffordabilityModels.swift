@@ -10,16 +10,56 @@ import Vision
 
 // MARK: - Detected Object Model
 
+/// Represents an object detected by the camera affordability scanner using VisionKit
+/// 
+/// This model encapsulates the complete results of computer vision object detection,
+/// including the classified category, confidence metrics, spatial information, and
+/// alternative classifications for robust affordability analysis.
+///
+/// - Note: All confidence values are normalized between 0.0 and 1.0
+/// - Important: BoundingBox coordinates use Vision framework format (origin at bottom-left)
 struct DetectedObject: Identifiable, Codable {
+    /// Unique identifier for SwiftUI list rendering and state management
     let id = UUID()
+    
+    /// The primary classified expense category for this detected object
+    /// Used for budget calculations and price estimation algorithms
     let category: Category
+    
+    /// Raw detection confidence score from VisionKit (0.0 to 1.0)
+    /// Higher values indicate more reliable object classification
     let confidence: Float
+    
+    /// Normalized bounding box coordinates in Vision framework format
+    /// Origin (0,0) is bottom-left, values range from 0.0 to 1.0
+    /// Used for UI overlay positioning and object size estimation
     let boundingBox: CGRect
+    
+    /// Timestamp when the object was detected
+    /// Used for tracking detection history, debugging, and temporal analysis
     let timestamp: Date
-    let rawClassification: String // Original ML model classification
-    let alternativeCategories: [CategoryConfidence] // Alternative category suggestions
+    
+    /// Original classification string from the ML model
+    /// Preserved for debugging, user feedback, and model improvement
+    let rawClassification: String
+    
+    /// Alternative category suggestions with confidence scores
+    /// Provides fallback options when primary classification has low confidence
+    let alternativeCategories: [CategoryConfidence]
+    
+    /// Source of the object detection (VisionKit, Core ML, etc.)
+    /// Used for analytics and debugging different detection pipelines
     let detectionSource: DetectionSource
     
+    /// Creates a new detected object with comprehensive detection metadata
+    /// - Parameters:
+    ///   - category: The primary expense category classification
+    ///   - confidence: VisionKit confidence score (0.0-1.0, higher indicates better detection)
+    ///   - boundingBox: Normalized coordinates of the detected object in Vision format
+    ///   - rawClassification: Original ML model output string for debugging
+    ///   - alternativeCategories: Backup category suggestions with confidence scores
+    ///   - detectionSource: Which detection system produced this result
+    /// - Note: Timestamp is automatically set to current date/time for tracking
     init(category: Category, confidence: Float, boundingBox: CGRect, rawClassification: String = "", alternativeCategories: [CategoryConfidence] = [], detectionSource: DetectionSource = .vision) {
         self.category = category
         self.confidence = confidence
@@ -30,17 +70,36 @@ struct DetectedObject: Identifiable, Codable {
         self.timestamp = Date()
     }
     
-    /// Adjusted confidence based on category-specific multipliers
+    /// Confidence score adjusted by category-specific multipliers for improved accuracy
+    /// 
+    /// Different object categories have varying detection reliability. This computed property
+    /// applies category-specific multipliers to the raw confidence score while ensuring
+    /// the result never exceeds 1.0.
+    /// 
+    /// - Returns: Adjusted confidence score (0.0-1.0) optimized for the detected category
+    /// - Note: Food items get 1.2x multiplier, bills get 0.7x due to detection difficulty
     var adjustedConfidence: Float {
         return min(confidence * category.detectionConfidenceMultiplier, 1.0)
     }
     
-    /// Whether this detection meets the minimum confidence threshold
+    /// Determines if this detection meets the category-specific confidence threshold
+    /// 
+    /// Each category has different minimum confidence requirements based on detection
+    /// reliability and the cost of false positives in affordability calculations.
+    /// 
+    /// - Returns: `true` if adjusted confidence meets or exceeds the category threshold
+    /// - Note: Used to filter out unreliable detections before price estimation
     var meetsConfidenceThreshold: Bool {
         return adjustedConfidence >= category.minimumDetectionConfidence
     }
     
-    /// Best alternative category if primary doesn't meet threshold
+    /// Returns the best alternative category if the primary classification is unreliable
+    /// 
+    /// When the primary category doesn't meet confidence thresholds, this provides
+    /// the highest-confidence alternative that does meet its respective threshold.
+    /// 
+    /// - Returns: The most confident alternative category, or `nil` if none qualify
+    /// - Note: Essential for graceful degradation when primary detection fails
     var bestAlternative: CategoryConfidence? {
         return alternativeCategories.first { $0.confidence >= $0.category.minimumDetectionConfidence }
     }
@@ -48,11 +107,27 @@ struct DetectedObject: Identifiable, Codable {
 
 // MARK: - Supporting Detection Models
 
+/// Represents an alternative category classification with confidence and reasoning
+/// 
+/// Used when the primary object detection produces multiple possible categories,
+/// providing fallback options and transparency in the classification process.
+/// Essential for handling edge cases and improving user trust in AI decisions.
 struct CategoryConfidence: Codable {
+    /// The alternative expense category classification
     let category: Category
+    
+    /// Confidence score for this alternative classification (0.0-1.0)
     let confidence: Float
+    
+    /// Human-readable explanation of why this category was suggested
+    /// Generated by Apple Foundation Models for transparency
     let reasoning: String
     
+    /// Creates a new alternative category suggestion
+    /// - Parameters:
+    ///   - category: The suggested expense category
+    ///   - confidence: How confident the model is in this classification (0.0-1.0)
+    ///   - reasoning: AI-generated explanation for this suggestion
     init(category: Category, confidence: Float, reasoning: String = "") {
         self.category = category
         self.confidence = confidence
@@ -60,12 +135,25 @@ struct CategoryConfidence: Codable {
     }
 }
 
+/// Identifies the source system that performed object detection
+/// 
+/// Different detection systems have varying accuracy, performance, and capabilities.
+/// Tracking the source enables analytics, debugging, and system optimization.
 enum DetectionSource: String, Codable, CaseIterable {
+    /// Apple's VisionKit framework for real-time camera detection
     case vision = "VisionKit"
+    
+    /// Custom Core ML models for specialized object recognition
     case coreML = "Core ML"
+    
+    /// Apple Foundation Models for advanced AI-powered classification
     case foundationModels = "Apple Foundation Models"
+    
+    /// User manually selected or corrected the category
     case manual = "Manual Selection"
     
+    /// Human-readable name for UI display
+    /// - Returns: The formatted display name for this detection source
     var displayName: String {
         return rawValue
     }
@@ -73,20 +161,74 @@ enum DetectionSource: String, Codable, CaseIterable {
 
 // MARK: - Affordability Result Model
 
+/// Complete affordability analysis result for a camera-detected object
+/// 
+/// This is the core model that combines object detection, price estimation,
+/// budget analysis, and AI-powered recommendations into a single comprehensive
+/// result. Used throughout the UI to present affordability decisions to users.
+///
+/// - Important: All price values are in USD
+/// - Note: Contains pre-computed UI properties for immediate display
 struct AffordabilityResult: Identifiable, Codable {
+    /// Unique identifier for SwiftUI list rendering and state management
     let id = UUID()
-    let canAfford: Bool
-    let estimatedPrice: Double
-    let priceRange: ClosedRange<Double>
-    let detectedCategory: Category
-    let budgetImpact: BudgetImpact
-    let aiReasoning: String
-    let confidence: Float
-    let recommendations: [AffordabilityRecommendation]
-    let timestamp: Date
-    let detectedObject: DetectedObject
-    let transactionPreview: TransactionPreview // Preview for easy Transaction creation
     
+    /// Primary affordability decision - can the user afford this item?
+    /// Based on category budget, monthly budget, and AI-enhanced analysis
+    let canAfford: Bool
+    
+    /// AI-estimated price for the detected object in USD
+    /// Generated using category-based heuristics and Apple Foundation Models
+    let estimatedPrice: Double
+    
+    /// Confidence range for the price estimate (min...max in USD)
+    /// Provides transparency about estimation uncertainty
+    let priceRange: ClosedRange<Double>
+    
+    /// The expense category used for budget calculations
+    /// May differ from detected category if confidence was low
+    let detectedCategory: Category
+    
+    /// Comprehensive analysis of how this purchase affects the user's budget
+    /// Includes streak risk, utilization metrics, and projections
+    let budgetImpact: BudgetImpact
+    
+    /// Natural language explanation generated by Apple Foundation Models
+    /// Explains the affordability decision in user-friendly terms
+    let aiReasoning: String
+    
+    /// Overall confidence in the affordability analysis (0.0-1.0)
+    /// Combines detection confidence with price estimation reliability
+    let confidence: Float
+    
+    /// AI-generated actionable recommendations for the user
+    /// Includes savings plans, budget adjustments, and alternatives
+    let recommendations: [AffordabilityRecommendation]
+    
+    /// When this affordability analysis was performed
+    /// Used for caching, debugging, and temporal analysis
+    let timestamp: Date
+    
+    /// The original detected object that triggered this analysis
+    /// Preserved for debugging and user feedback collection
+    let detectedObject: DetectedObject
+    
+    /// Pre-configured transaction data for seamless expense entry
+    /// Enables one-tap addition to budget tracking
+    let transactionPreview: TransactionPreview
+    
+    /// Creates a comprehensive affordability analysis result
+    /// - Parameters:
+    ///   - canAfford: Whether the user can afford this item based on budget analysis
+    ///   - estimatedPrice: AI-estimated price in USD
+    ///   - priceRange: Optional price confidence range (defaults to ±20% of estimate)
+    ///   - detectedCategory: Category used for budget calculations
+    ///   - budgetImpact: Detailed analysis of budget effects
+    ///   - aiReasoning: Natural language explanation from Apple Foundation Models
+    ///   - confidence: Overall analysis confidence (0.0-1.0)
+    ///   - recommendations: AI-generated actionable suggestions
+    ///   - detectedObject: Original detection that triggered this analysis
+    /// - Note: Automatically creates transaction preview and sets timestamp
     init(canAfford: Bool, estimatedPrice: Double, priceRange: ClosedRange<Double>? = nil, detectedCategory: Category, budgetImpact: BudgetImpact, aiReasoning: String, confidence: Float, recommendations: [AffordabilityRecommendation] = [], detectedObject: DetectedObject) {
         self.canAfford = canAfford
         self.estimatedPrice = estimatedPrice
@@ -99,7 +241,7 @@ struct AffordabilityResult: Identifiable, Codable {
         self.detectedObject = detectedObject
         self.timestamp = Date()
         
-        // Create transaction preview for seamless integration
+        // Create transaction preview for seamless integration with existing expense tracking
         self.transactionPreview = TransactionPreview(
             amount: estimatedPrice,
             category: detectedCategory,
@@ -108,17 +250,23 @@ struct AffordabilityResult: Identifiable, Codable {
         )
     }
     
-    /// Color for UI feedback based on affordability
+    /// SwiftUI color name for affordability feedback UI
+    /// - Returns: "green" for affordable items, "red" for unaffordable items
+    /// - Note: Used for consistent color coding across the app interface
     var feedbackColor: String {
         return canAfford ? "green" : "red"
     }
     
-    /// Icon for UI feedback
+    /// SF Symbols icon name for affordability status display
+    /// - Returns: Checkmark icon for affordable, X-mark icon for unaffordable
+    /// - Note: Provides immediate visual feedback in result cards and overlays
     var feedbackIcon: String {
         return canAfford ? "checkmark.circle.fill" : "xmark.circle.fill"
     }
     
-    /// Quick summary for display
+    /// Concise one-line summary for quick display in lists and notifications
+    /// - Returns: Formatted string with affordability status, price, and category
+    /// - Example: "✅ Affordable • $25 • Food" or "❌ Not Affordable • $150 • Shopping"
     var quickSummary: String {
         let affordabilityText = canAfford ? "✅ Affordable" : "❌ Not Affordable"
         return "\(affordabilityText) • $\(estimatedPrice, specifier: "%.0f") • \(detectedCategory.rawValue)"
@@ -127,20 +275,42 @@ struct AffordabilityResult: Identifiable, Codable {
 
 // MARK: - Transaction Preview Model
 
+/// Pre-configured transaction data for seamless expense entry integration
+/// 
+/// This model bridges the gap between camera detection and the existing
+/// transaction system, enabling one-tap expense addition with smart defaults
+/// and confidence-based suggestions for user review.
 struct TransactionPreview: Codable {
+    /// Estimated transaction amount in USD from price estimation
     let amount: Double
+    
+    /// Detected expense category for budget allocation
     let category: Category
+    
+    /// Auto-generated note describing the detection source and classification
     let note: String
+    
+    /// Overall confidence in the detection and price estimate (0.0-1.0)
     let confidence: Float
+    
+    /// AI-generated suggestions for user review based on confidence levels
+    /// Lower confidence triggers more adjustment suggestions
     let suggestedAdjustments: [String]
     
+    /// Creates a transaction preview with confidence-based adjustment suggestions
+    /// - Parameters:
+    ///   - amount: Estimated transaction amount in USD
+    ///   - category: Detected expense category
+    ///   - note: Descriptive note about the detection
+    ///   - confidence: Overall detection confidence (0.0-1.0)
+    /// - Note: Automatically generates adjustment suggestions for low-confidence detections
     init(amount: Double, category: Category, note: String, confidence: Float) {
         self.amount = amount
         self.category = category
         self.note = note
         self.confidence = confidence
         
-        // Generate suggested adjustments based on confidence
+        // Generate suggested adjustments based on confidence levels
         var adjustments: [String] = []
         if confidence < 0.8 {
             adjustments.append("Consider adjusting the amount")
@@ -151,7 +321,14 @@ struct TransactionPreview: Codable {
         self.suggestedAdjustments = adjustments
     }
     
-    /// Create Transaction data for the existing system
+    /// Converts preview data to format expected by existing transaction system
+    /// 
+    /// Provides seamless integration with the current BudgetViewModel.addTransaction()
+    /// method by formatting the preview data into the expected tuple structure.
+    /// 
+    /// - Returns: Tuple containing all required transaction parameters
+    /// - Note: Always creates expense transactions (isIncome: false)
+    /// - Note: Uses current date/time for transaction timestamp
     var transactionData: (amount: Double, category: Category?, incomeCategory: IncomeCategory?, isIncome: Bool, date: Date, note: String) {
         return (
             amount: amount,
@@ -166,16 +343,55 @@ struct TransactionPreview: Codable {
 
 // MARK: - Budget Impact Model
 
+/// Comprehensive analysis of how a purchase affects the user's budget and financial goals
+/// 
+/// This model provides detailed insights into budget utilization, streak protection,
+/// and future spending projections. Used to generate actionable recommendations
+/// and help users understand the full financial impact of their purchase decisions.
 struct BudgetImpact: Codable {
+    /// Remaining monthly budget after this purchase (in USD)
+    /// Negative values indicate budget overrun
     let remainingMonthlyBudget: Double
+    
+    /// Remaining budget in the specific category after this purchase (in USD)
+    /// Used for category-specific spending guidance
     let categoryBudgetRemaining: Double
+    
+    /// Daily budget impact if this purchase is made (in USD per day)
+    /// Helps users understand spending pace implications
     let dailyBudgetImpact: Double
+    
+    /// Whether this purchase would exceed any budget limits
+    /// Triggers warning UI and alternative recommendations
     let wouldExceedBudget: Bool
+    
+    /// Risk level this purchase poses to the user's spending streak
+    /// Considers streak length and budget utilization for protection
     let streakRisk: StreakRisk
+    
+    /// Detailed metrics about current budget utilization patterns
+    /// Provides context for spending decisions and trend analysis
     let budgetUtilization: BudgetUtilization
+    
+    /// AI-powered projections for end-of-month budget status
+    /// Helps users understand long-term implications of current spending
     let projectedMonthEnd: ProjectedMonthEnd
+    
+    /// Prioritized list of AI-generated budget optimization suggestions
+    /// Provides actionable steps for better financial management
     let smartRecommendations: [SmartBudgetRecommendation]
     
+    /// Creates comprehensive budget impact analysis with AI-powered insights
+    /// - Parameters:
+    ///   - remainingMonthlyBudget: Monthly budget remaining after purchase (USD)
+    ///   - categoryBudgetRemaining: Category budget remaining after purchase (USD)
+    ///   - dailyBudgetImpact: Daily spending impact of this purchase (USD/day)
+    ///   - wouldExceedBudget: Whether purchase exceeds any budget limits
+    ///   - streakRisk: Risk level to current spending streak
+    ///   - currentMonthlySpending: Total spending so far this month (USD)
+    ///   - monthlyBudget: Total monthly budget limit (USD)
+    ///   - daysRemainingInMonth: Days left in current month for projections
+    /// - Note: Automatically calculates utilization metrics and generates recommendations
     init(remainingMonthlyBudget: Double, categoryBudgetRemaining: Double, dailyBudgetImpact: Double, wouldExceedBudget: Bool, streakRisk: StreakRisk, currentMonthlySpending: Double, monthlyBudget: Double, daysRemainingInMonth: Int) {
         self.remainingMonthlyBudget = remainingMonthlyBudget
         self.categoryBudgetRemaining = categoryBudgetRemaining
@@ -536,7 +752,14 @@ struct AlternativeAction: Codable, Identifiable {
 // MARK: - Extensions to Existing Models
 
 extension Category {
-    /// Estimated price ranges for different categories (in USD)
+    /// Typical price ranges for items in each expense category
+    /// 
+    /// These ranges are used for price estimation when specific item data
+    /// is unavailable. Based on market research and user spending patterns.
+    /// 
+    /// - Returns: Closed range representing min...max typical prices in USD
+    /// - Note: Ranges are conservative to avoid overestimation
+    /// - Important: Update ranges periodically based on inflation and market changes
     var typicalPriceRange: ClosedRange<Double> {
         switch self {
         case .food:
@@ -554,7 +777,15 @@ extension Category {
         }
     }
     
-    /// Confidence multiplier for object detection in this category
+    /// Multiplier applied to raw VisionKit confidence scores for this category
+    /// 
+    /// Different object types have varying detection reliability. This multiplier
+    /// adjusts confidence scores based on empirical detection accuracy for each
+    /// category, improving overall classification reliability.
+    /// 
+    /// - Returns: Multiplier value (typically 0.7-1.2) applied to raw confidence
+    /// - Note: Values >1.0 boost confidence for easily detected items (food)
+    /// - Note: Values <1.0 reduce confidence for difficult items (bills, transport)
     var detectionConfidenceMultiplier: Float {
         switch self {
         case .food:
@@ -572,7 +803,15 @@ extension Category {
         }
     }
     
-    /// Camera detection confidence threshold for this category
+    /// Minimum confidence threshold required for reliable detection in this category
+    /// 
+    /// Sets the quality bar for object detection to minimize false positives
+    /// in affordability calculations. Higher thresholds for categories where
+    /// misclassification could lead to poor financial advice.
+    /// 
+    /// - Returns: Minimum confidence score (0.0-1.0) required for acceptance
+    /// - Note: Bills require 0.85 due to high misclassification cost
+    /// - Note: Food allows 0.6 due to lower financial risk and better detection
     var minimumDetectionConfidence: Float {
         switch self {
         case .food:
@@ -590,7 +829,15 @@ extension Category {
         }
     }
     
-    /// Camera detection keywords for object classification
+    /// Keywords used for object classification and category matching
+    /// 
+    /// These keywords help map raw ML model outputs to expense categories.
+    /// Used in conjunction with VisionKit results to improve classification
+    /// accuracy and handle edge cases in object recognition.
+    /// 
+    /// - Returns: Array of lowercase keywords associated with this category
+    /// - Note: Keywords should be regularly updated based on user feedback
+    /// - Important: Used for fallback classification when VisionKit confidence is low
     var detectionKeywords: [String] {
         switch self {
         case .food:
@@ -610,7 +857,18 @@ extension Category {
 }
 
 extension BudgetViewModel {
-    /// Calculate affordability for a detected object using AI-enhanced budget analysis
+    /// Performs comprehensive affordability analysis for a camera-detected object
+    /// 
+    /// This is the core method that combines object detection results with budget data
+    /// to produce actionable affordability decisions. Uses AI-enhanced logic to consider
+    /// spending patterns, streak protection, and behavioral insights.
+    /// 
+    /// - Parameters:
+    ///   - detectedObject: The object detected by VisionKit with classification metadata
+    ///   - estimatedPrice: AI-estimated price in USD for the detected item
+    /// - Returns: Complete affordability analysis with recommendations and budget impact
+    /// - Note: Integrates with existing budget tracking and streak systems
+    /// - Important: All calculations use current budget state and real-time data
     func calculateAffordability(for detectedObject: DetectedObject, estimatedPrice: Double) -> AffordabilityResult {
         let category = detectedObject.category
         let categoryBudgetRemaining = budgetRemainingForCategory(category)
@@ -681,7 +939,20 @@ extension BudgetViewModel {
         )
     }
     
-    /// AI-enhanced streak risk calculation
+    /// Calculates the risk this purchase poses to the user's spending streak
+    /// 
+    /// Uses AI-enhanced logic that considers streak length, budget utilization,
+    /// and spending patterns to assess streak protection needs. Longer streaks
+    /// receive higher protection priority through dynamic risk multipliers.
+    /// 
+    /// - Parameters:
+    ///   - canAfford: Whether the purchase fits within current budgets
+    ///   - estimatedPrice: The estimated cost of the item in USD
+    ///   - categoryBudgetRemaining: Remaining budget in the item's category
+    ///   - monthlyBudgetRemaining: Total remaining monthly budget
+    ///   - currentStreak: User's current consecutive days within budget
+    /// - Returns: Risk level from `.none` to `.high` with associated UI colors and icons
+    /// - Note: Risk increases with streak length to protect valuable achievements
     private func calculateStreakRisk(canAfford: Bool, estimatedPrice: Double, categoryBudgetRemaining: Double, monthlyBudgetRemaining: Double, currentStreak: Int) -> BudgetImpact.StreakRisk {
         if !canAfford {
             return .high
@@ -706,7 +977,20 @@ extension BudgetViewModel {
         }
     }
     
-    /// Generate AI-enhanced affordability reasoning
+    /// Generates natural language explanation for affordability decisions
+    /// 
+    /// Creates user-friendly explanations that combine budget analysis with
+    /// detection confidence and streak considerations. Uses contextual information
+    /// to provide actionable insights rather than just yes/no decisions.
+    /// 
+    /// - Parameters:
+    ///   - canAfford: The primary affordability decision
+    ///   - estimatedPrice: Estimated item cost in USD
+    ///   - category: The expense category for budget context
+    ///   - budgetImpact: Detailed budget analysis results
+    ///   - detectedObject: Original detection for confidence context
+    /// - Returns: Human-readable explanation of the affordability decision
+    /// - Note: Will be enhanced with Apple Foundation Models for more natural language
     private func generateAIAffordabilityReasoning(canAfford: Bool, estimatedPrice: Double, category: Category, budgetImpact: BudgetImpact, detectedObject: DetectedObject) -> String {
         let categoryBudget = budget.categoryBudgets[category] ?? 0
         let confidenceText = detectedObject.meetsConfidenceThreshold ? "high confidence" : "moderate confidence"
@@ -734,7 +1018,20 @@ extension BudgetViewModel {
         }
     }
     
-    /// Generate AI-powered recommendations with behavioral insights
+    /// Creates personalized recommendations based on affordability analysis
+    /// 
+    /// Generates actionable suggestions that help users make informed financial
+    /// decisions. For unaffordable items, provides savings plans and alternatives.
+    /// For affordable items, offers optimization tips and streak protection advice.
+    /// 
+    /// - Parameters:
+    ///   - canAfford: Whether the item is currently affordable
+    ///   - estimatedPrice: The estimated cost in USD
+    ///   - category: Expense category for context-specific advice
+    ///   - budgetImpact: Detailed budget analysis for recommendation logic
+    ///   - detectedObject: Original detection for confidence-based suggestions
+    /// - Returns: Array of prioritized, actionable recommendations
+    /// - Note: Uses behavioral analysis and spending patterns for personalization
     private func generateAIRecommendations(canAfford: Bool, estimatedPrice: Double, category: Category, budgetImpact: BudgetImpact, detectedObject: DetectedObject) -> [AffordabilityRecommendation] {
         var recommendations: [AffordabilityRecommendation] = []
         

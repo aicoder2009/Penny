@@ -9,6 +9,7 @@ import SwiftUI
 import AVFoundation
 import VisionKit
 import Vision
+import MLCompute
 
 // MARK: - Camera Affordability View
 
@@ -254,6 +255,7 @@ class CameraAffordabilityViewModel: NSObject, ObservableObject {
     private let sessionQueue = DispatchQueue(label: "camera.session.queue")
     private let visionProcessor = VisionProcessor()
     private let priceEstimationEngine = PriceEstimationEngine()
+    private let foundationModelsProcessor = AppleFoundationModelsProcessor()
     
     // Integration with existing budget system
     var budgetViewModel: BudgetViewModel?
@@ -262,6 +264,7 @@ class CameraAffordabilityViewModel: NSObject, ObservableObject {
         super.init()
         setupCamera()
         visionProcessor.delegate = self
+        foundationModelsProcessor.initialize()
     }
     
     private func setupCamera() {
@@ -273,30 +276,69 @@ class CameraAffordabilityViewModel: NSObject, ObservableObject {
     private func configureCaptureSession() {
         captureSession.beginConfiguration()
         
-        // Configure session preset
-        captureSession.sessionPreset = .photo
+        // Configure session preset for optimal performance
+        if captureSession.canSetSessionPreset(.photo) {
+            captureSession.sessionPreset = .photo
+        } else if captureSession.canSetSessionPreset(.high) {
+            captureSession.sessionPreset = .high
+        } else {
+            captureSession.sessionPreset = .medium
+        }
         
-        // Add camera input
-        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-              let cameraInput = try? AVCaptureDeviceInput(device: camera) else {
+        // Add camera input with graceful fallback
+        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+            print("Camera hardware not available - graceful fallback to manual entry")
             DispatchQueue.main.async {
-                self.showingPermissionAlert = true
+                self.handleCameraAccessDenied()
             }
             captureSession.commitConfiguration()
             return
         }
         
-        if captureSession.canAddInput(cameraInput) {
-            captureSession.addInput(cameraInput)
+        do {
+            let cameraInput = try AVCaptureDeviceInput(device: camera)
+            
+            if captureSession.canAddInput(cameraInput) {
+                captureSession.addInput(cameraInput)
+            } else {
+                print("Cannot add camera input - session configuration issue")
+                DispatchQueue.main.async {
+                    self.handleCameraAccessDenied()
+                }
+                captureSession.commitConfiguration()
+                return
+            }
+        } catch {
+            print("Failed to create camera input: \(error.localizedDescription)")
+            DispatchQueue.main.async {
+                self.handleCameraAccessDenied()
+            }
+            captureSession.commitConfiguration()
+            return
         }
+        
+        // Configure video output with optimal settings
+        videoOutput.videoSettings = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+        ]
         
         // Add video output
         if captureSession.canAddOutput(videoOutput) {
             captureSession.addOutput(videoOutput)
             videoOutput.setSampleBufferDelegate(self, queue: sessionQueue)
+            
+            // Configure connection for optimal performance
+            if let connection = videoOutput.connection(with: .video) {
+                if connection.isVideoStabilizationSupported {
+                    connection.preferredVideoStabilizationMode = .auto
+                }
+            }
+        } else {
+            print("Cannot add video output - session configuration issue")
         }
         
         captureSession.commitConfiguration()
+        print("Camera session configured successfully")
     }
     
     func startCamera() {
@@ -330,10 +372,31 @@ class CameraAffordabilityViewModel: NSObject, ObservableObject {
                 }
             }
         case .denied, .restricted:
+            DispatchQueue.main.async {
+                self.showingPermissionAlert = true
+            }
             completion(false)
         @unknown default:
+            DispatchQueue.main.async {
+                self.showingPermissionAlert = true
+            }
             completion(false)
         }
+    }
+    
+    /// Graceful fallback when camera access is denied
+    /// Provides alternative ways to use the app without camera functionality
+    func handleCameraAccessDenied() {
+        DispatchQueue.main.async {
+            self.showingPermissionAlert = true
+            // Log the fallback for analytics
+            print("Camera access denied - falling back to manual entry mode")
+        }
+    }
+    
+    /// Check if camera hardware is available on the device
+    func isCameraAvailable() -> Bool {
+        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) != nil
     }
 }
 
@@ -362,7 +425,24 @@ extension CameraAffordabilityViewModel: VisionProcessorDelegate {
             if let budgetViewModel = self.budgetViewModel {
                 let affordabilityResult = budgetViewModel.calculateAffordability(for: object, estimatedPrice: estimatedPrice)
                 
-                self.currentAffordabilityResult = affordabilityResult
+                // Enhance with Apple Foundation Models reasoning (foundation setup)
+                let enhancedReasoning = self.foundationModelsProcessor.generateAffordabilityReasoning(
+                    for: object,
+                    canAfford: affordabilityResult.canAfford
+                )
+                
+                // Create enhanced result with AI reasoning
+                let enhancedResult = AffordabilityResult(
+                    canAfford: affordabilityResult.canAfford,
+                    estimatedPrice: affordabilityResult.estimatedPrice,
+                    detectedCategory: affordabilityResult.detectedCategory,
+                    budgetImpact: affordabilityResult.budgetImpact,
+                    aiReasoning: enhancedReasoning,
+                    confidence: affordabilityResult.confidence,
+                    detectedObject: object
+                )
+                
+                self.currentAffordabilityResult = enhancedResult
                 self.showingResultCard = true
                 
                 // Haptic feedback
